@@ -170,12 +170,14 @@ version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
     { name = "datasets" },
+    { name = "numpy" },
     { name = "scikit-learn" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "datasets", specifier = ">=4.5.0" },
+    { name = "numpy", specifier = ">=2.4.2" },
     { name = "scikit-learn", specifier = ">=1.8.0" },
 ]
 
