@@ -1,6 +1,4 @@
 import numpy as np
-from scipy.spatial.distance import cdist
-
 
 class DBScan:
     def __init__(self, radius: float, min_dense: int):
@@ -15,46 +13,45 @@ class DBScan:
         dists = self.calculate_distances(X[idx], X)
         return np.where(dists <= self.radius)[0] # returns an array where the distance is less than the radius
         
-    def make_cluster(self, X, idx_list = np.array([0]), root = True):
-        for idx in idx_list:
+    def make_cluster(self, X, start_idx):
+        neighbor_stack = [start_idx]
+        start = True
+        while neighbor_stack:
+            idx = neighbor_stack.pop()
             if self.visited[idx] == 1: #has already been visited
                 continue
             self.visited[idx] = 1 # it has now been visited
-            self.clusters[idx] = self.n_cluster # put it in the current cluster.
             neigh_idxs = self.get_neighbors(idx, X)
 
             if neigh_idxs.shape[0] < 1:
-                self.type[idx] = 3 # noise 
+                self.type[idx] = 3 # noise for sure.. it has no neighbors
                 return
-            elif neigh_idxs.shape[0] >= self.min_dense:
+            elif neigh_idxs.shape[0] >= self.min_dense: # if a core object
                 self.type[idx] = 1 # core object, we continue
-                self.make_cluster(X, neigh_idxs, root=False) # we continue on its children since its a core object
-            else: # we have an edge/border
-                self.type[idx] = 2
-        
-        if root == True: # bc we are done making the clustering
-            self.n_cluster += 1
-
+                neighbor_stack.extend(neigh_idxs.tolist()) # we continue on its children since its a core object
+                start = False
+                self.clusters[idx] = self.n_cluster # put it in the current cluster.
+            else: # we either have an edge/border or a noise point but we will check all later
+                if start == False: # we know now it definitely came from a core object 
+                    self.type[idx] = 2
+                    self.clusters[idx] = self.n_cluster
+                else: # in the case that this is the first point we look at, we do not know yet if we have any core neighbors
+                    self.visited[idx] = 0  #so if there is a core neighbor we will later discover it
+                    self.type[idx] = 3 #leave it as noise for now, but might be overwritten.
+                    
+        self.n_cluster += 1
     
     def make_clusters(self, X):
-        self.visited = np.zeros(shape=len(X))
+        self.visited = np.zeros(shape=(X.shape[0]))
         self.type = np.zeros(shape=len(X)) # 1 = core, 2 = edge, 3 = noise
         self.clusters = np.zeros(shape=len(X))
         self.n_cluster = 1
         for idx in range(X.shape[0]):
             if self.visited[idx] == 0:
-                self.make_cluster(X, idx_list=np.array([idx]))
+                self.make_cluster(X, start_idx=idx)
+
         return self.clusters
 
-
-                
-
-    
-    def calculate_distance_matrix(X):
-        return cdist(X, X)
-    
-    def get_():
-        return
 
    
    
