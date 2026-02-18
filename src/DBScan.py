@@ -5,10 +5,10 @@ class DBScan:
         self.radius = radius
         self.min_dense = min_dense
 
-
     def calculate_distances(self, v: np.array, m: np.array):
-        return np.linalg.norm(v - m, axis=1) # calc the diff and then the length of the diff between v and all vectors in m
-    
+        return np.linalg.norm(v - m,
+                              axis=1)  # calc the diff and then the length of the diff between v and all vectors in m
+
     def get_neighbors(self, idx: int, X: np.array):
         dists = self.calculate_distances(X[idx], X)
         return np.where(dists <= self.radius)[0] # returns an array where the distance is less than the radius
