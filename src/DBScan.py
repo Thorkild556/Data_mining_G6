@@ -1,4 +1,5 @@
 import numpy as np
+import sklearn
 
 class DBScan:
     def __init__(self, radius: float, min_dense: int):
@@ -8,12 +9,18 @@ class DBScan:
     def calculate_distances(self, v: np.array, m: np.array):
         return np.linalg.norm(v - m,
                               axis=1)  # calc the diff and then the length of the diff between v and all vectors in m
-
-    def get_neighbors(self, idx: int, X: np.array):
-        dists = self.calculate_distances(X[idx], X)
+    
+    def cosine_distances(self, v: np.array, m: np.array):
+        return (1 - sklearn.metrics.pairwise.cosine_similarity(v.reshape(1, -1), m)).flatten()
+    
+    def get_neighbors(self, idx: int, X: np.array, cosine: bool = True):
+        if cosine == True:
+            dists = self.cosine_distances(X[idx], X)
+        else:
+            dists = self.calculate_distances(X[idx], X)
         return np.where(dists <= self.radius)[0] # returns an array where the distance is less than the radius
-        
-    def make_cluster(self, X, start_idx):
+    
+    def make_cluster(self, X, start_idx, cosine: bool = True):
         neighbor_stack = [start_idx]
         start = True
         while neighbor_stack:
@@ -21,7 +28,7 @@ class DBScan:
             if self.visited[idx] == 1: #has already been visited
                 continue
             self.visited[idx] = 1 # it has now been visited
-            neigh_idxs = self.get_neighbors(idx, X)
+            neigh_idxs = self.get_neighbors(idx, X, cosine)
 
             if neigh_idxs.shape[0] < 1:
                 self.type[idx] = 3 # noise for sure.. it has no neighbors
@@ -38,24 +45,16 @@ class DBScan:
                 else: # in the case that this is the first point we look at, we do not know yet if we have any core neighbors
                     self.visited[idx] = 0  #so if there is a core neighbor we will later discover it
                     self.type[idx] = 3 #leave it as noise for now, but might be overwritten.
-                    
+        
         self.n_cluster += 1
     
-    def make_clusters(self, X):
+    def make_clusters(self, X, cosine: bool = True):
         self.visited = np.zeros(shape=(X.shape[0]))
         self.type = np.zeros(shape=len(X)) # 1 = core, 2 = edge, 3 = noise
         self.clusters = np.zeros(shape=len(X))
         self.n_cluster = 1
         for idx in range(X.shape[0]):
             if self.visited[idx] == 0:
-                self.make_cluster(X, start_idx=idx)
-
+                self.make_cluster(X, start_idx=idx, cosine = cosine)
+    
         return self.clusters
-
-
-   
-   
-        
-        
-            
-            
