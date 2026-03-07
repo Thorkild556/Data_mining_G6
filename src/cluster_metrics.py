@@ -3,22 +3,33 @@ from sklearn.decomposition import PCA
 from src.DBScan import DBScan
 import numpy as np
 from itertools import chain
-from typing import List, Tuple, Optional
-from datasets import load_dataset, DatasetDict
+from typing import List, Optional
+from datasets import DatasetDict
 from sklearn.metrics.pairwise import cosine_similarity, euclidean_distances
+from pathlib import Path
+import json
 
 
 class EvalClustering:
     embedder = SentenceTransformer("all-MiniLM-L6-v2")
     pca = PCA(n_components=int(2 ** 6))
 
-    def __init__(self, _dataset: DatasetDict, force_embeddings: Optional = None, grp=0, radius=0.6, min_dense=10):
+    def __init__(self, _dataset: Optional[DatasetDict] = None, force_embeddings: Optional = None, grp=0, radius=0.6,
+                 min_dense=10):
         self.scanner = DBScan(radius=radius, min_dense=min_dense)
         if force_embeddings is not None:
             self.tests = force_embeddings
         else:
-            self.tests = self.embed(list(chain.from_iterable(_dataset["test"]["sentences"][:grp + 1])))
-        self.test_results = list(chain.from_iterable(_dataset["test"]["labels"][:grp + 1]))
+            if _dataset is None:
+                self.tests = np.load("embeddings.npy")
+            else:
+                self.tests = self.embed(list(chain.from_iterable(_dataset["test"]["sentences"][:grp + 1])))
+                np.save("embeddings.npy", self.tests)
+        if _dataset is not None:
+            self.test_results = list(chain.from_iterable(_dataset["test"]["labels"][:grp + 1]))
+            Path("labels.json").write_text(json.dumps(self.test_results))
+        else:
+            self.test_results = json.loads(Path("labels.json").read_text())
 
     def embed(self, samples):
         embedded = self.embedder.encode(samples)
@@ -33,18 +44,26 @@ class EvalClustering:
 
     def db_scan(self):
         cluster_of_samples = self.scanner.make_clusters(self.tests)
-        noisy = np.where(cluster_of_samples == 0)
-        print("Number of clusters produced: ", len(np.unique(cluster_of_samples)) - int(bool(noisy)))
+        unique_clusters = set(cluster_of_samples)
+        print("Number of clusters produced: ", len(unique_clusters) - int(0 in unique_clusters))
         return {
-            "noise": len(np.where(cluster_of_samples == 0)),
-            "clusters": cluster_of_samples,
-            "cluster_num": len(np.unique(cluster_of_samples)) - int(bool(noisy)),
+            "noise": len(np.where(cluster_of_samples == 0)) if 0 in unique_clusters else 0,
+            "clusters": list(cluster_of_samples),
+            "cluster_num": len(unique_clusters) - int(0 in unique_clusters),
             "raw_clusters": np.unique(cluster_of_samples).size
         }
 
-    def eval_db_scan(self):
-        db_scan_results = self.db_scan()
-        table, cluster_map = self.contingency_tab(db_scan_results["cluster_num"], db_scan_results["clusters"])
+    def eval_db_scan(self, force_read=False):
+        if not force_read:
+            db_scan_results = self.db_scan()
+            Path("db_scan_results.json").write_text(json.dumps(db_scan_results))
+        else:
+            db_scan_results = json.loads(Path("db_scan_results.json").read_text())
+        table, unique_clusters = self.contingency_tab(
+            db_scan_results["cluster_num"],
+            db_scan_results["clusters"]
+        )
+        print(table.shape)
 
         return {
             "Noise %": self.percent(db_scan_results["noise"] / db_scan_results["cluster_num"]),
@@ -52,22 +71,18 @@ class EvalClustering:
             "nml_score": self.nml_score(table),
             "clusters_found": db_scan_results["cluster_num"],
             "noise": db_scan_results["noise"],
-            "silhouette_score": self.silhouette(db_scan_results["clusters"])
+            "silhouette_score": self.silhouette(db_scan_results["clusters"], unique_clusters)
         }
 
     @staticmethod
     def percent(num_):
         return round(num_ * 1e2, 2)
 
-    def contingency_tab(self, got_this_many_clusters: int, clustered):
-        table = np.zeros(20 * got_this_many_clusters).reshape((20, got_this_many_clusters))
-        cluster_map = {clustered_to: cluster_index for cluster_index, clustered_to in enumerate(sorted(set(clustered)))}
-        for cluster_index, clustered_to in enumerate(clustered):
-            if clustered_to == 0:
-                continue
-            table[self.test_results[cluster_index], cluster_map[clustered_to] - 1] += 1
-
-        return table, cluster_map
+    def contingency_tab(self, got_this_many_clusters: int, clustered: List[int]):
+        table = np.zeros((20, got_this_many_clusters), dtype=int)
+        db_scan_clusters, db_scan_clusters_mapped = np.unique(clustered, return_inverse=True)
+        np.add.at(table, (self.test_results, db_scan_clusters_mapped), 1)
+        return table, db_scan_clusters
 
     def prob_contingency(self, table):
         total = np.sum(table)
@@ -106,71 +121,49 @@ class EvalClustering:
             return 1
         return top / bottom
 
-    def get_k_nearest_neighbors(self, idx: int, k: int = 10, data_items: List = None) -> Tuple[List[int], List[float]]:
-        if data_items is None:
-            data_items = self.tests
-        dists = [
-            (
-                self.calc_distance(self.tests[idx], _) if self.tests[idx] != self.tests[idx] else np.inf
-            )
-            for _ in data_items
-        ]
-        points = np.argsort(dists)[:k].tolist()
-        return points, [dists[_] for _ in points]
+    def silhouette(self, clustered: List[int], unique_clusters: List[int], use_cosine: bool = True):
+        dist_func = (lambda x, y: (1 - cosine_similarity(x, y))) if use_cosine else euclidean_distances
 
-    def single_link_coefficient(self, clustered: List[int]):
-        ...
+        internal_cluster_distance = np.zeros(len(clustered))
+        external_cluster_distance = np.zeros(len(clustered))
 
-    def silhouette(self, clustered: List[int], use_cosine: bool = False):
-        # cluster_id (by db scan) = list of points in that cluster
-        clustered_map = {
-            clustered_to: [self.tests[idx] for idx, _ in enumerate(clustered) if _ != 0]
-            for clustered_to in
-            sorted(set(clustered)) if clustered_to != 0
-        }
-        dist_func = cosine_similarity if use_cosine else euclidean_distances
-        # point to its avg distance with all its points in teh cluster
-        internal_cluster_distance = {}
-        for cluster in clustered_map:
-            dists = dist_func(clustered_map[cluster], clustered_map[cluster])
-            for point, _ in enumerate(clustered_map[cluster]):
-                internal_cluster_distance[point] = np.mean(
-                    np.concatenate((dists[point, :point], dists[point, point + 1:]))
-                )
 
-        external_cluster_distance = {}
-        for point_index, point in enumerate(clustered):
-            avg_distance = np.inf
-            if point == 0:
-                continue
-            for cluster in clustered_map:
-                if cluster == point:
+        distance_of_every_point_with_all_other_points = dist_func(self.tests, self.tests)
+        np.fill_diagonal(distance_of_every_point_with_all_other_points, np.nan)  # we don't want diagonal distances as they are same point
+
+        for cluster in unique_clusters:
+            cluster_points = np.where(clustered == cluster)
+            other_cluster_points = np.where(clustered != cluster)
+
+            mini_matrix = distance_of_every_point_with_all_other_points[cluster_points, cluster_points]
+            internal_cluster_distance[cluster_points] += np.nanmean(mini_matrix, axis=1)
+
+            avg_distance = None
+
+            for cluster_to in unique_clusters:
+                if cluster_to == cluster:
                     continue
 
-                avg_distance = min(
-                    avg_distance,
-                    np.mean(
-                        dist_func(clustered_map[point], [self.tests[point_index]])
-                    )
-                )
-            external_cluster_distance[point_index] = avg_distance
+                mini_matrix_to = distance_of_every_point_with_all_other_points[
+                    cluster_points, other_cluster_points
+                ]
+                _avg = np.nanmean(mini_matrix_to, axis=1)
 
-        return {
-            ((internal_cluster_distance[point] - external_cluster_distance[point]) / max(
-                internal_cluster_distance[point], external_cluster_distance[point]))
-            for point, _ in enumerate(clustered)
-            if point in external_cluster_distance and point in internal_cluster_distance
-        }
+                if avg_distance is None:
+                    avg_distance = _avg
+                else:
+                    # https://stackoverflow.com/questions/39277638/element-wise-minimum-of-multiple-vectors-in-numpy
+                    avg_distance = np.minimum.reduce([avg_distance, _avg])
+
+            external_cluster_distance[cluster_points] += avg_distance
+
+        return (
+                external_cluster_distance - internal_cluster_distance
+        ) / np.maximum(internal_cluster_distance, external_cluster_distance)
 
 
+# debugging script to make sure script can be modified to run fast
 if __name__ == "__main__":
-    dataset = load_dataset("mteb/twentynewsgroups-clustering", revision="6125ec4e24fa026cec8a478383ee943acfbd5449")
-    print(dataset["test"])
-
-    # Extracting variables
-    test = dataset["test"]
-    texts_sep = list(test["sentences"])
-    labels_sep = list(test["labels"])
-
-    error = EvalClustering(dataset)
-    print(error.eval_db_scan())
+    error = EvalClustering(grp=10)
+    results = error.eval_db_scan(True)
+    print(results)
