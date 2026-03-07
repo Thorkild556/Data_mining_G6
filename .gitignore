@@ -397,6 +397,11 @@ MigrationBackup/
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
 
+
+# embeddings
+embeddings.npy
+labels.npy
+
 .ipynb_checkpoints
 
 # Pycharm related files
@@ -422,3 +427,7 @@ FodyWeavers.xsd
 *.msix
 *.msm
 *.msp
+
+db_scan_results.json
+*.npy
+labels.json
