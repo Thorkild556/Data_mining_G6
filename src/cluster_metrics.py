@@ -11,6 +11,7 @@ import json
 import plotly.graph_objects as go
 import plotly.subplots as sub
 from loguru import logger
+import gc
 
 
 class EvalClustering:
@@ -32,17 +33,19 @@ class EvalClustering:
             else:
                 if Path("embeddings.npy").exists():
                     self.tests = np.load("embeddings.npy")
+                    logger.info("Loaded embeddings.npy")
                 else:
                     self.tests = self.embed(list(chain.from_iterable(_dataset["test"]["sentences"][:grp + 1])))
                     np.save("embeddings.npy", self.tests)
                     logger.info("Saved embeddings.npy")
 
         if _dataset is not None:
-            if force_embeddings is None and Path("labels.json").exists():
+            if Path("labels.json").exists():
                 self.test_results = json.loads(Path("labels.json").read_text())
             else:
                 self.test_results = list(chain.from_iterable(_dataset["test"]["labels"][:grp + 1]))
                 Path("labels.json").write_text(json.dumps(self.test_results))
+                logger.info("Saved labels.json")
         else:
             self.test_results = json.loads(Path("labels.json").read_text())
 
@@ -57,11 +60,13 @@ class EvalClustering:
                     self.dist_matrix = euclidean_distances(self.tests, self.tests)
                 np.fill_diagonal(self.dist_matrix, np.nan)
                 np.save("dists.npy", self.dist_matrix)
-            else:
-                # memmap because its 60k x 60k and we don't want to load it all into ram
-                self.dist_matrix = np.memmap("dists.npy", dtype='float32', mode='r',
-                                             shape=(len(self.tests), len(self.tests)))
-                logger.info("Loaded dists.npy")
+                del self.dist_matrix
+                gc.collect()
+
+            # memmap because its 60k x 60k and we don't want to load it all into ram
+            self.dist_matrix = np.memmap("dists.npy", dtype='float32', mode='r',
+                                         shape=(len(self.tests), len(self.tests)))
+            logger.info("Loaded dists.npy")
 
     def embed(self, samples):
         embedded = self.embedder.encode(samples)
@@ -98,15 +103,15 @@ class EvalClustering:
             db_scan_results["clusters"]
         )
         logger.info("Loaded contingency table and validating the results")
-        print(table.shape)
-
+        score = self.silhouette(db_scan_results["clusters"], list(unique_clusters))
         return {
             "Noise %": self.percent(db_scan_results["noise"] / db_scan_results["cluster_num"]),
             "purity_score": self.purity_score(table),
             "nml_score": self.nml_score(table),
             "clusters_found": db_scan_results["cluster_num"],
             "noise": db_scan_results["noise"],
-            "silhouette_score": self.silhouette(db_scan_results["clusters"], list(unique_clusters))
+            "mean_silhouette_score": np.mean(score),
+            "silhouette_score": score
         }
 
     @staticmethod
@@ -204,41 +209,49 @@ class EvalClustering:
         fig = sub.make_subplots(
             rows=2, cols=3,
             specs=[[{}, {}, {}],
-                   [{"colspan": 3}, None, None]],
-            subplot_titles=["Purity Score", "NML Score", "Clusters Found", "Silhouette Score"])
+                   [{}, {"colspan": 2}, None]],
+            subplot_titles=["Purity Score", "NML Score", "Clusters Found", "Mean Silhouette Score", "Silhouette Score"])
         purity_scores = [result["purity_score"] for result in run_results]
         nml_scores = [result["nml_score"] for result in run_results]
         clusters_found = [result["clusters_found"] for result in run_results]
+        mean_silhouette_scores = [np.mean(result["silhouette_score"]) for result in run_results]
 
         fig.add_trace(go.Bar(x=run_results_title, y=purity_scores), row=1, col=1)
         fig.add_trace(go.Bar(x=run_results_title, y=nml_scores), row=1, col=2)
         fig.add_trace(go.Bar(x=run_results_title, y=clusters_found), row=1, col=3)
+        fig.add_trace(go.Bar(x=run_results_title, y=mean_silhouette_scores), row=2, col=1)
 
         for i, run in enumerate(run_results):
             fig.add_trace(
                 go.Scatter(x=np.arange(len(run["silhouette_score"])), y=run["silhouette_score"], mode="lines+markers"),
-                row=2, col=1)
+                row=2, col=2)
 
         fig.update_layout(title="Comparison of Clustering Results", template="plotly_dark")
         fig.update_xaxes(title_text="Run")
         fig.update_yaxes(title_text="Score")
         return fig
 
+    def __del__(self):
+        super().__del__()
+        del self.dist_matrix
+        gc.collect()
+
 
 # debugging script to make sure script can be modified to run fast
 if __name__ == "__main__":
-    error = EvalClustering(grp=10)
-    results = error.eval_db_scan(True)
-    print(results)
-    EvalClustering.plot_single_result(
-        results["silhouette_score"]
-    ).show()
-    #
-    # EvalClustering.plot_multiple_results(
-    #     [
-    #         {"purity_score": 0.5, "nml_score": 0.6, "clusters_found": 7, "silhouette_score": [0.7, 0.8, 0.9]},
-    #         {"purity_score": 0.8, "nml_score": 0.9, "clusters_found": 10, "silhouette_score": [0.85, 0.9, 0.95]},
-    #         {"purity_score": 0.7, "nml_score": 0.8, "clusters_found": 9, "silhouette_score": [0.75, 0.8, 0.85]}
-    #     ],
-    #     ["Run 1", "Run 2", "Run 3"]
+    # error = EvalClustering(grp=10)
+    # results = error.eval_db_scan(True)
+    # print(results)
+    # EvalClustering.plot_single_result(
+    #     results["silhouette_score"]
     # ).show()
+    # #
+    EvalClustering.plot_multiple_results(
+        [{"purity_score": 0.5, "nml_score": 0.6, "clusters_found": 7, "mean_silhouette_score": np.mean([0.7, 0.8, 0.9]),
+          "silhouette_score": [0.7, 0.8, 0.9]},
+         {"purity_score": 0.8, "nml_score": 0.9, "clusters_found": 10,
+          "mean_silhouette_score": np.mean([0.85, 0.9, 0.95]), "silhouette_score": [0.85, 0.9, 0.95]},
+         {"purity_score": 0.7, "nml_score": 0.8, "clusters_found": 9,
+          "mean_silhouette_score": np.mean([0.75, 0.8, 0.85]), "silhouette_score": [0.75, 0.8, 0.85]}],
+        ["Run 1", "Run 2", "Run 3"]
+    ).show()
