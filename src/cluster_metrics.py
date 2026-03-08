@@ -203,12 +203,13 @@ class EvalClustering:
     @classmethod
     def plot_single_result(cls, sil_scores: List[float]):
         fig = go.Figure()
-        fig.add_trace(go.Scatter(x=np.arange(len(sil_scores)), y=sil_scores, mode="lines+markers"),
-                      name="Silhouette Scores")
+        fig.add_trace(
+            go.Scatter(x=np.arange(len(sil_scores)), y=sil_scores, mode="lines+markers", name="Silhouette Scores"))
         avg_score = np.mean(sil_scores)
         fig.add_trace(
-            go.Line(x=[0, len(sil_scores) - 1], y=[avg_score, avg_score], line=dict(color="red", dash="dash"),
-                    name=f"Average: {avg_score:.2f}"))
+            go.Scatter(x=[0, len(sil_scores) - 1], y=[avg_score, avg_score], mode="lines",
+                       line=dict(color="red", dash="dash"),
+                       name=f"Average: {avg_score:.2f}"))
         fig.update_layout(title="Silhouette Scores", template="plotly_dark")
         fig.update_xaxes(title_text="Points")
         fig.update_yaxes(title_text="Silhouette Score")
@@ -251,26 +252,25 @@ class EvalClustering:
 
 # debugging script to make sure script can be modified to run fast
 if __name__ == "__main__":
-    error = EvalClustering(grp=9, radius=0.00001, min_dense=10)
-    results = error.eval_db_scan(True)
-    print(results)
-    EvalClustering.plot_single_result(
-        results["silhouette_score"]
-    ).show()
-
+    # error = EvalClustering(grp=9, radius=0.00001, min_dense=10)
+    # results = error.eval_db_scan(True)
+    # print(results)
+    # EvalClustering.plot_single_result(
+    #     results["silhouette_score"]
+    # ).show()
 
     # #
-    # EvalClustering.plot_multiple_results(
-    #     [{"Noise %": 10, "purity_score": 0.5, "nml_score": 0.6, "clusters_found": 7,
-    #       "mean_silhouette_score": np.mean([0.7, 0.8, 0.9]),
-    #       "silhouette_score": [0.7, 0.8, 0.9]},
-    #      {"Noise %": 5, "purity_score": 0.8, "nml_score": 0.9, "clusters_found": 10,
-    #       "mean_silhouette_score": np.mean([0.85, 0.9, 0.95]), "silhouette_score": [0.85, 0.9, 0.95]},
-    #      {"Noise %": 15, "purity_score": 0.7, "nml_score": 0.8, "clusters_found": 9,
-    #       "mean_silhouette_score": np.mean([0.75, 0.8, 0.85]), "silhouette_score": [0.75, 0.8, 0.85]}],
-    #     ["Run 1", "Run 2", "Run 3"]
-    # ).show()
-    #
-    # EvalClustering.plot_single_result(
-    #     [0.7, 0.8, 0.9]
-    # ).show()
+    EvalClustering.plot_multiple_results(
+        [{"Noise %": 10, "purity_score": 0.5, "nml_score": 0.6, "clusters_found": 7,
+          "mean_silhouette_score": np.mean([0.7, 0.8, 0.9]),
+          "silhouette_score": [0.7, 0.8, 0.9]},
+         {"Noise %": 5, "purity_score": 0.8, "nml_score": 0.9, "clusters_found": 10,
+          "mean_silhouette_score": np.mean([0.85, 0.9, 0.95]), "silhouette_score": [0.85, 0.9, 0.95]},
+         {"Noise %": 15, "purity_score": 0.7, "nml_score": 0.8, "clusters_found": 9,
+          "mean_silhouette_score": np.mean([0.75, 0.8, 0.85]), "silhouette_score": [0.75, 0.8, 0.85]}],
+        ["Run 1", "Run 2", "Run 3"]
+    ).show()
+
+    EvalClustering.plot_single_result(
+        [0.7, 0.8, 0.9]
+    ).show()
