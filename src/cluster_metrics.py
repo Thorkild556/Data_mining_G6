@@ -216,6 +216,7 @@ class EvalClustering:
         fig.update_layout(title="Silhouette Scores", template="plotly_dark")
         fig.update_xaxes(title_text="Points")
         fig.update_yaxes(title_text="Silhouette Score")
+        fig.update_layout(width=900, height=600)
         return fig
 
     @classmethod
@@ -242,7 +243,7 @@ class EvalClustering:
             fig.add_trace(
                 go.Scatter(x=np.arange(len(run["silhouette_score"])), y=run["silhouette_score"], mode="lines+markers",
                            name=run_results_title[i]), row=2, col=2)
-        fig.update_layout(showlegend=False)
+        fig.update_layout(showlegend=False, width=1000, height=600)
         fig.update_layout(title="Comparison of Clustering Results", template="plotly_dark")
         fig.update_xaxes(title_text="Run")
         fig.update_yaxes(title_text="Score")
@@ -268,7 +269,7 @@ class EvalClustering:
 
         for i, run in enumerate(run_results):
             fig.add_trace(go.Scatter(fill='tozeroy', x=np.arange(len(run["silhouette_score"])), y=run["silhouette_score"], name=run_results_title[i]), row=2, col=2)
-        fig.update_layout(showlegend=False)
+        fig.update_layout(showlegend=False, width=1000, height=600)
         fig.update_layout(title="Comparison of Clustering Results", template="plotly_dark")
         fig.update_xaxes(title_text="Run")
         fig.update_yaxes(title_text="Score")
