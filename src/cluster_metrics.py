@@ -17,6 +17,7 @@ import gc
 class EvalClustering:
     embedder = SentenceTransformer("all-MiniLM-L6-v2")
     pca = PCA(n_components=int(2 ** 6))
+    root = Path(__file__).parent
 
     def __init__(self, _dataset: Optional[DatasetDict] = None, force_embeddings: Optional = None, grp=0, radius=0.6,
                  min_dense=10, force_dist_matrix: Optional[np.ndarray] = None, use_cosine: bool = True):
@@ -28,43 +29,43 @@ class EvalClustering:
             self.tests = force_embeddings
         else:
             if _dataset is None:
-                self.tests = np.load("embeddings.npy")
+                self.tests = np.load(self.root / "embeddings.npy")
                 logger.info("Loaded embeddings.npy")
             else:
-                if Path("embeddings.npy").exists():
-                    self.tests = np.load("embeddings.npy")
+                if (self.root / "embeddings.npy").exists():
+                    self.tests = np.load(self.root / "embeddings.npy")
                     logger.info("Loaded embeddings.npy")
                 else:
                     self.tests = self.embed(list(chain.from_iterable(_dataset["test"]["sentences"][:grp + 1])))
-                    np.save("embeddings.npy", self.tests)
+                    np.save(self.root / "embeddings.npy", self.tests)
                     logger.info("Saved embeddings.npy")
 
         if _dataset is not None:
-            if Path("labels.json").exists():
-                self.test_results = json.loads(Path("labels.json").read_text())
+            if (self.root / "labels.json").exists():
+                self.test_results = json.loads((self.root / "labels.json").read_text())
             else:
                 self.test_results = list(chain.from_iterable(_dataset["test"]["labels"][:grp + 1]))
-                Path("labels.json").write_text(json.dumps(self.test_results))
+                (self.root / "labels.json").write_text(json.dumps(self.test_results))
                 logger.info("Saved labels.json")
         else:
-            self.test_results = json.loads(Path("labels.json").read_text())
+            self.test_results = json.loads((self.root / "labels.json").read_text())
 
         if force_dist_matrix is not None:
             self.dist_matrix = force_dist_matrix
         else:
             logger.info("Calculating distance matrix")
-            if not Path("dists.npy").exists():
+            if not (self.root / "dists.npy").exists():
                 if use_cosine:
                     self.dist_matrix = (1 - cosine_similarity(self.tests, self.tests))
                 else:
                     self.dist_matrix = euclidean_distances(self.tests, self.tests)
                 np.fill_diagonal(self.dist_matrix, np.nan)
-                np.save("dists.npy", self.dist_matrix)
+                np.save(self.root / "dists.npy", self.dist_matrix)
                 del self.dist_matrix
                 gc.collect()
 
             # memmap because its 60k x 60k and we don't want to load it all into ram
-            self.dist_matrix = np.memmap("dists.npy", dtype='float32', mode='r',
+            self.dist_matrix = np.memmap(self.root / "dists.npy", dtype='float32', mode='r',
                                          shape=(len(self.tests), len(self.tests)))
             logger.info("Loaded dists.npy")
 
@@ -90,14 +91,15 @@ class EvalClustering:
             "raw_clusters": np.unique(cluster_of_samples).size
         }
 
-    def eval_db_scan(self, force_read=False):
+    def eval_db_scan(self, force_read=False, save_results=False):
         if not force_read:
             logger.info("Running DBSCAN")
             db_scan_results = self.db_scan()
-            Path("db_scan_results.json").write_text(json.dumps(db_scan_results))
+            if save_results:
+                (self.root / "db_scan_results.json").write_text(json.dumps(db_scan_results))
         else:
             logger.info("Loading DBSCAN results")
-            db_scan_results = json.loads(Path("db_scan_results.json").read_text())
+            db_scan_results = json.loads((self.root / "db_scan_results.json").read_text())
         table, unique_clusters = self.contingency_tab(
             db_scan_results["cluster_num"],
             db_scan_results["clusters"]
@@ -232,7 +234,6 @@ class EvalClustering:
         return fig
 
     def __del__(self):
-        super().__del__()
         del self.dist_matrix
         gc.collect()
 
