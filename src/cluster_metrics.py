@@ -85,8 +85,10 @@ class EvalClustering:
         unique_clusters = set(cluster_of_samples)
         print("Number of clusters produced: ", len(unique_clusters) - int(0 in unique_clusters))
         if remove_noise:
-            cluster_of_samples = cluster_of_samples[np.where(cluster_of_samples != 0)[0]]
-            logger.info("Number of clusters produced after removing noise: %s", len(unique_clusters) - 1)
+            focus = np.where(cluster_of_samples != 0)[0]
+            cluster_of_samples = cluster_of_samples[focus]
+            self.test_results = np.array(self.test_results)[focus]
+            logger.info("Number of clusters produced after removing noise: %s", (len(unique_clusters) - 1,))
         return {
             "noise": len(np.where(cluster_of_samples == 0)) if 0 in unique_clusters else 0,
             "clusters": list(cluster_of_samples),
