@@ -88,7 +88,7 @@ class EvalClustering:
             focus = np.where(cluster_of_samples != 0)[0]
             cluster_of_samples = cluster_of_samples[focus]
             self.test_results = np.array(self.test_results)[focus]
-            logger.info("Number of clusters produced after removing noise: %s", (len(unique_clusters) - 1,))
+            logger.info("Number of clusters produced after removing noise: {}", (len(unique_clusters) - 1,))
         return {
             "noise": len(np.where(cluster_of_samples == 0)) if 0 in unique_clusters else 0,
             "clusters": list(cluster_of_samples),
@@ -100,6 +100,7 @@ class EvalClustering:
         if not force_read:
             logger.info("Running DBSCAN")
             db_scan_results = self.db_scan(remove_noise)
+            logger.info("DBSCAN Completed")
             if save_results:
                 (self.root / "db_scan_results.json").write_text(json.dumps(db_scan_results))
         else:
