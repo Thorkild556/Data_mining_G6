@@ -427,6 +427,7 @@ labels.npy
 *.msix
 *.msm
 *.msp
+fix_notebook.py
 
 db_scan_results.json
 *.npy

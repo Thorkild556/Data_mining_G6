@@ -248,6 +248,32 @@ class EvalClustering:
         fig.update_yaxes(title_text="Score")
         return fig
 
+    @classmethod
+    def plot_multiple_results_with_selected_scores(cls, run_results, run_results_title):
+        fig = sub.make_subplots(
+            rows=2, cols=3,
+            specs=[[{}, {}, {}],
+                   [{}, {"colspan": 2}, None]],
+            subplot_titles=["Purity Score", "NML Score", "Clusters Found", "Mean Silhouette Score", "Silhouette Score",
+                            "Noise %"])
+        purity_scores = [result["purity_score"] for result in run_results]
+        clusters_found = [result["clusters_found"] for result in run_results]
+        noise_percentages = [result["Noise %"] for result in run_results]
+        mean_silhouette_scores = [np.mean(result["silhouette_score"]) for result in run_results]
+
+        fig.add_trace(go.Bar(x=run_results_title, y=purity_scores), row=1, col=1)
+        fig.add_trace(go.Bar(x=run_results_title, y=clusters_found), row=1, col=2)
+        fig.add_trace(go.Bar(x=run_results_title, y=noise_percentages), row=1, col=3)
+        fig.add_trace(go.Bar(x=run_results_title, y=mean_silhouette_scores), row=2, col=1)
+
+        for i, run in enumerate(run_results):
+            fig.add_trace(go.Scatter(fill='tozeroy', x=np.arange(len(run["silhouette_score"])), y=run["silhouette_score"], name=run_results_title[i]), row=2, col=2)
+        fig.update_layout(showlegend=False)
+        fig.update_layout(title="Comparison of Clustering Results", template="plotly_dark")
+        fig.update_xaxes(title_text="Run")
+        fig.update_yaxes(title_text="Score")
+        return fig
+
     def __del__(self):
         del self.dist_matrix
         gc.collect()
