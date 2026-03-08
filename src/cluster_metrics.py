@@ -53,8 +53,8 @@ class EvalClustering:
         if force_dist_matrix is not None:
             self.dist_matrix = force_dist_matrix
         else:
-            logger.info("Calculating distance matrix")
             if not (self.root / "dists.npy").exists():
+                logger.info("Calculating distance matrix")
                 if use_cosine:
                     self.dist_matrix = (1 - cosine_similarity(self.tests, self.tests))
                 else:
@@ -80,10 +80,13 @@ class EvalClustering:
         print("AFTER", transformed_samples.shape)
         return transformed_samples
 
-    def db_scan(self):
+    def db_scan(self, remove_noise: bool = True):
         cluster_of_samples = self.scanner.make_clusters(self.tests)
         unique_clusters = set(cluster_of_samples)
         print("Number of clusters produced: ", len(unique_clusters) - int(0 in unique_clusters))
+        if remove_noise:
+            cluster_of_samples = cluster_of_samples[np.where(cluster_of_samples != 0)[0]]
+            logger.info("Number of clusters produced after removing noise: %s", len(unique_clusters) - 1)
         return {
             "noise": len(np.where(cluster_of_samples == 0)) if 0 in unique_clusters else 0,
             "clusters": list(cluster_of_samples),
@@ -91,10 +94,10 @@ class EvalClustering:
             "raw_clusters": np.unique(cluster_of_samples).size
         }
 
-    def eval_db_scan(self, force_read=False, save_results=False):
+    def eval_db_scan(self, force_read=False, save_results=False, remove_noise=True):
         if not force_read:
             logger.info("Running DBSCAN")
-            db_scan_results = self.db_scan()
+            db_scan_results = self.db_scan(remove_noise)
             if save_results:
                 (self.root / "db_scan_results.json").write_text(json.dumps(db_scan_results))
         else:
@@ -198,9 +201,14 @@ class EvalClustering:
         ) / np.maximum(internal_cluster_distance, external_cluster_distance)
 
     @classmethod
-    def plot_single_result(cls, sil_scores):
+    def plot_single_result(cls, sil_scores: List[float]):
         fig = go.Figure()
-        fig.add_trace(go.Scatter(x=np.arange(len(sil_scores)), y=sil_scores, mode="lines+markers"))
+        fig.add_trace(go.Scatter(x=np.arange(len(sil_scores)), y=sil_scores, mode="lines+markers"),
+                      name="Silhouette Scores")
+        avg_score = np.mean(sil_scores)
+        fig.add_trace(
+            go.Line(x=[0, len(sil_scores) - 1], y=[avg_score, avg_score], line=dict(color="red", dash="dash"),
+                    name=f"Average: {avg_score:.2f}"))
         fig.update_layout(title="Silhouette Scores", template="plotly_dark")
         fig.update_xaxes(title_text="Points")
         fig.update_yaxes(title_text="Silhouette Score")
@@ -211,23 +219,26 @@ class EvalClustering:
         fig = sub.make_subplots(
             rows=2, cols=3,
             specs=[[{}, {}, {}],
-                   [{}, {"colspan": 2}, None]],
-            subplot_titles=["Purity Score", "NML Score", "Clusters Found", "Mean Silhouette Score", "Silhouette Score"])
+                   [{}, {"colspan": 1}, {}]],
+            subplot_titles=["Purity Score", "NML Score", "Clusters Found", "Mean Silhouette Score", "Silhouette Score",
+                            "Noise %"])
         purity_scores = [result["purity_score"] for result in run_results]
         nml_scores = [result["nml_score"] for result in run_results]
         clusters_found = [result["clusters_found"] for result in run_results]
+        noise_percentages = [result["Noise %"] for result in run_results]
         mean_silhouette_scores = [np.mean(result["silhouette_score"]) for result in run_results]
 
         fig.add_trace(go.Bar(x=run_results_title, y=purity_scores), row=1, col=1)
         fig.add_trace(go.Bar(x=run_results_title, y=nml_scores), row=1, col=2)
         fig.add_trace(go.Bar(x=run_results_title, y=clusters_found), row=1, col=3)
         fig.add_trace(go.Bar(x=run_results_title, y=mean_silhouette_scores), row=2, col=1)
+        fig.add_trace(go.Bar(x=run_results_title, y=noise_percentages), row=2, col=3)
 
         for i, run in enumerate(run_results):
             fig.add_trace(
-                go.Scatter(x=np.arange(len(run["silhouette_score"])), y=run["silhouette_score"], mode="lines+markers"),
-                row=2, col=2)
-
+                go.Scatter(x=np.arange(len(run["silhouette_score"])), y=run["silhouette_score"], mode="lines+markers",
+                           name=run_results_title[i]), row=2, col=2)
+        fig.update_layout(showlegend=False)
         fig.update_layout(title="Comparison of Clustering Results", template="plotly_dark")
         fig.update_xaxes(title_text="Run")
         fig.update_yaxes(title_text="Score")
@@ -240,19 +251,26 @@ class EvalClustering:
 
 # debugging script to make sure script can be modified to run fast
 if __name__ == "__main__":
-    # error = EvalClustering(grp=10)
-    # results = error.eval_db_scan(True)
-    # print(results)
-    # EvalClustering.plot_single_result(
-    #     results["silhouette_score"]
-    # ).show()
-    # #
-    EvalClustering.plot_multiple_results(
-        [{"purity_score": 0.5, "nml_score": 0.6, "clusters_found": 7, "mean_silhouette_score": np.mean([0.7, 0.8, 0.9]),
-          "silhouette_score": [0.7, 0.8, 0.9]},
-         {"purity_score": 0.8, "nml_score": 0.9, "clusters_found": 10,
-          "mean_silhouette_score": np.mean([0.85, 0.9, 0.95]), "silhouette_score": [0.85, 0.9, 0.95]},
-         {"purity_score": 0.7, "nml_score": 0.8, "clusters_found": 9,
-          "mean_silhouette_score": np.mean([0.75, 0.8, 0.85]), "silhouette_score": [0.75, 0.8, 0.85]}],
-        ["Run 1", "Run 2", "Run 3"]
+    error = EvalClustering(grp=9, radius=0.00001, min_dense=10)
+    results = error.eval_db_scan(True)
+    print(results)
+    EvalClustering.plot_single_result(
+        results["silhouette_score"]
     ).show()
+
+
+    # #
+    # EvalClustering.plot_multiple_results(
+    #     [{"Noise %": 10, "purity_score": 0.5, "nml_score": 0.6, "clusters_found": 7,
+    #       "mean_silhouette_score": np.mean([0.7, 0.8, 0.9]),
+    #       "silhouette_score": [0.7, 0.8, 0.9]},
+    #      {"Noise %": 5, "purity_score": 0.8, "nml_score": 0.9, "clusters_found": 10,
+    #       "mean_silhouette_score": np.mean([0.85, 0.9, 0.95]), "silhouette_score": [0.85, 0.9, 0.95]},
+    #      {"Noise %": 15, "purity_score": 0.7, "nml_score": 0.8, "clusters_found": 9,
+    #       "mean_silhouette_score": np.mean([0.75, 0.8, 0.85]), "silhouette_score": [0.75, 0.8, 0.85]}],
+    #     ["Run 1", "Run 2", "Run 3"]
+    # ).show()
+    #
+    # EvalClustering.plot_single_result(
+    #     [0.7, 0.8, 0.9]
+    # ).show()
