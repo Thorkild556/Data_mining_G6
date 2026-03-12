@@ -12,6 +12,7 @@ dependencies = [
     "jupyter>=1.1.1",
     "jupyterlab-execute-time>=3.3.0",
     "kaleido>=1.2.0",
+    "kneed>=0.8.5",
     "loguru>=0.7.3",
     "numpy>=2.4.2",
     "pandas>=3.0.0",
