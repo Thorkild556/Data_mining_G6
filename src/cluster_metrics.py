@@ -93,7 +93,9 @@ class ClusterMetrics:
         entropy_from_actual_clusters = -np.sum(among_actual_clusters * np.log2(among_actual_clusters))
 
 
-        mutual_info = np.sum(prob * np.log2(prob / np.outer(among_our_clusters, among_actual_clusters)))
+        result = np.outer(among_our_clusters, among_actual_clusters)
+        mask = result > 0
+        mutual_info = np.sum(prob[mask] * np.log2(prob[mask] / result[mask]))
         return np.sum(
             mutual_info / np.sqrt(entropy_of_our_clusters * entropy_from_actual_clusters)
         )
