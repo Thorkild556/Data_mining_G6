@@ -1,17 +1,8 @@
-from sentence_transformers import SentenceTransformer
-from sklearn.decomposition import PCA
-from src.DBScan import DBScan
 import numpy as np
-from itertools import chain
-from typing import List, Optional
-from datasets import DatasetDict
-from sklearn.metrics.pairwise import cosine_similarity, euclidean_distances
-from pathlib import Path
-import json
+from typing import List
+from sklearn.metrics.pairwise import cosine_similarity
 import plotly.graph_objects as go
 import plotly.subplots as sub
-from loguru import logger
-import gc
 
 
 class ClusterMetrics:
@@ -81,24 +72,19 @@ class ClusterMetrics:
     @classmethod
     def normalized_mutual_info(cls, table):
         total = np.sum(table)
-
-        # we first calculate the probablity of element in the contingency table
         prob = table / total
 
-        # and among our clusters
         among_our_clusters = np.sum(prob, axis=0)
         among_actual_clusters = np.sum(prob, axis=1)
 
         entropy_of_our_clusters = -np.sum(among_our_clusters * np.log2(among_our_clusters))
         entropy_from_actual_clusters = -np.sum(among_actual_clusters * np.log2(among_actual_clusters))
 
-
-        result = np.outer(among_our_clusters, among_actual_clusters)
-        mask = result > 0
-        mutual_info = np.sum(prob[mask] * np.log2(prob[mask] / result[mask]))
-        return np.sum(
-            mutual_info / np.sqrt(entropy_of_our_clusters * entropy_from_actual_clusters)
-        )
+        joint = np.outer(among_actual_clusters, among_our_clusters)
+        mask = prob > 0
+        mutual_info = np.sum(prob[mask] * np.log2(prob[mask] / joint[mask]))
+        r = mutual_info / np.sqrt(entropy_of_our_clusters * entropy_from_actual_clusters)
+        return r if np.isnan(r) else 0
 
     @classmethod
     def purity_score(cls, table):
@@ -178,7 +164,6 @@ class PlotCLusterMetrics:
         fig.update_xaxes(title_text="Run")
         fig.update_yaxes(title_text="Score")
         return fig
-
 
 # if __name__ == "__main__":
 #     error = EvalClustering(grp=9, radius=0.00001, min_dense=10)
