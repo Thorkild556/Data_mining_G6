@@ -17,20 +17,29 @@ import gc
 class ClusterMetrics:
     @classmethod
     def silhouette(cls, clustered: np.ndarray, unique_clusters: List[int], dist_matrix: np.ndarray):
+        # please note we have the dist_matrix where the embeddings * embeddings
+        # where each cell would be the distance between them
         internal_cluster_distance = np.zeros(len(clustered))
         external_cluster_distance = np.zeros(len(clustered))
 
+        # for every cluster we have predicted
         for cluster in unique_clusters:
             cluster_points = np.where(clustered == cluster)[0]
 
+            # we would be creating the matrix where it would have those embeddings inside that cluster
             mini_matrix = dist_matrix[np.ix_(cluster_points, cluster_points)]
+            # saving those results inside the internal_cluster_distance for every point
             internal_cluster_distance[cluster_points] = np.nanmean(mini_matrix, axis=1)
 
             avg_distance = None
 
+            # now for every other cluster
             for cluster_to in unique_clusters:
                 if cluster_to == cluster:
                     continue
+
+                # we would be calcuating the distance between ever point of one cluster to every other points in
+                # other cluster (pair wise)
 
                 other_cluster_points = np.where(clustered == cluster_to)[0]
                 mini_matrix_to = dist_matrix[
@@ -41,61 +50,52 @@ class ClusterMetrics:
                 if avg_distance is None:
                     avg_distance = _avg
                 else:
+                    # and then we would be picking (for every point) min. distance to its cluster
                     # https://stackoverflow.com/questions/39277638/element-wise-minimum-of-multiple-vectors-in-numpy
                     avg_distance = np.minimum.reduce([avg_distance, _avg])
 
             external_cluster_distance[cluster_points] = avg_distance
 
+        # for every point we have the (external - internal) distance
+        # and we would be dividing it by the max of internal and external distance
         return (
                 external_cluster_distance - internal_cluster_distance
         ) / np.maximum(internal_cluster_distance, external_cluster_distance)
 
     @staticmethod
     def percent(num_):
+        # just a helper function to convert a number to a percentage
         return round(num_ * 1e2, 2)
 
-    def contingency_tab(self, got_this_many_clusters: int, clustered: List[int], test_results: List[int]):
-        table = np.zeros((got_this_many_clusters, 20), dtype=int)
+    @classmethod
+    def contingency_tab(cls, got_this_many_clusters: int, clustered: List[int], test_results: List[int]):
+        # builds the contingency table for the clustering results
+        table = np.zeros((got_this_many_clusters, len(set(test_results))), dtype=int)
         db_scan_clusters, db_scan_clusters_mapped = np.unique(clustered, return_inverse=True)
         np.add.at(table, (db_scan_clusters_mapped, test_results), 1)
         return table, db_scan_clusters
 
-    def prob_contingency(self, table):
+    @classmethod
+    def normalized_mutual_info(cls, table):
         total = np.sum(table)
-        _new_table = table.copy()
-        for row in range(_new_table.shape[0]):
-            for col in range(_new_table.shape[1]):
-                actual_prob = _new_table[row][col] / total
-                if actual_prob == 0:
-                    continue
-                from_actual_cluster = np.sum(_new_table[row, :]) / total
-                to_predicted_cluster = np.sum(_new_table[:, col]) / total
 
-                _new_table[row][col] = actual_prob * np.log2(actual_prob / (from_actual_cluster * to_predicted_cluster))
-        return _new_table
+        # we first calculate the probablity of element in the contingency table
+        prob = table / total
 
-    def entropy(self, table, true_labels=False):
-        total = np.sum(table)
-        val = 0
-        for row in range(table.shape[0] if true_labels else table.shape[1]):
-            if true_labels:
-                prob = np.sum(table[row, :]) / total
-            else:
-                prob = np.sum(table[:, row]) / total
-            if prob == 0:
-                continue
-            val += -prob * np.log2(prob)
-        return val
+        # and among our clusters
+        among_our_clusters = np.sum(table, axis=0) / total
+        among_actual_clusters = np.sum(table, axis=1) / total
+        entropy_of_our_clusters = -np.sum(among_our_clusters * np.log2(among_our_clusters))
+        entropy_from_actual_clusters = -np.sum(among_actual_clusters * np.log2(among_actual_clusters))
 
-    def purity_score(self, table):
-        return np.sum(np.max(table, axis=0)) / np.sum(table)
+        mutual_info = prob * np.log2(prob / (among_our_clusters * among_actual_clusters))
+        return mutual_info / np.sqrt(entropy_of_our_clusters * entropy_from_actual_clusters)
 
-    def nml_score(self, table):
-        top = np.sum(self.prob_contingency(table))
-        bottom = np.sqrt(self.entropy(table) * self.entropy(table, true_labels=True))
-        if bottom == 0:
-            return 1
-        return top / bottom
+    @classmethod
+    def purity_score(cls, table):
+        cluster_number = np.sum(table, axis=0)
+        scores_for_clusters = np.max(table, axis=0) / cluster_number
+        return scores_for_clusters, np.average(scores_for_clusters, axis=0, weights=cluster_number / np.sum(table))
 
 
 class EvalClustering(ClusterMetrics):
@@ -146,7 +146,11 @@ class EvalClustering(ClusterMetrics):
                     self.dist_matrix = (1 - cosine_similarity(self.tests, self.tests))
                 else:
                     self.dist_matrix = euclidean_distances(self.tests, self.tests)
+
+                # we would be making sure the distance between the same embeddings are NAN
+                # so they can be ignored in NAN
                 np.fill_diagonal(self.dist_matrix, np.nan)
+
                 np.save(self.root / "dists.npy", self.dist_matrix)
                 del self.dist_matrix
                 gc.collect()
@@ -293,31 +297,54 @@ class EvalClustering(ClusterMetrics):
 
 # debugging script to make sure script can be modified to run fast
 if __name__ == "__main__":
-    error = EvalClustering(grp=9, radius=0.00001, min_dense=10)
-    results = error.eval_db_scan(False)
-    print(results)
-    EvalClustering.plot_single_result(
-        results["silhouette_score"]
-    ).show()
+    from scipy.stats.contingency import crosstab
+    from sklearn.metrics.pairwise import euclidean_distances
 
-    # #
-    # EvalClustering.plot_multiple_results(
-    #     [{"Noise %": 10, "purity_score": 0.5, "nml_score": 0.6, "clusters_found": 7,
-    #       "mean_silhouette_score": np.mean([0.7, 0.8, 0.9]),
-    #       "silhouette_score": [0.7, 0.8, 0.9]},
-    #      {"Noise %": 5, "purity_score": 0.8, "nml_score": 0.9, "clusters_found": 10,
-    #       "mean_silhouette_score": np.mean([0.85, 0.9, 0.95]), "silhouette_score": [0.85, 0.9, 0.95]},
-    #      {"Noise %": 15, "purity_score": 0.7, "nml_score": 0.8, "clusters_found": 9,
-    #       "mean_silhouette_score": np.mean([0.75, 0.8, 0.85]), "silhouette_score": [0.75, 0.8, 0.85]}],
-    #     ["Run 1", "Run 2", "Run 3"]
-    # ).show()
-    #
-    # EvalClustering.plot_single_result(
-    #     [0.7, 0.8, 0.9]
-    # ).show()
+    a = [1, 2, 2, 3, 4, 5, 5, 5, 7, 7, 7, 9, 10, 10, 11, 19, 18, 17, 16, 6, 8, 12, 13, 14, 15, 0]
+    b = [1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 10, 10, 11, 11, 12, 12, 13, 13]
+    assert len(a) == len(b)
+    res = crosstab(b, a)
+    ours, _ = ClusterMetrics.contingency_tab(len(set(b)), np.array(b), np.array(a))
+    print(res)
+    print(ours)
+    assert np.all(res.count == ours)
 
-    # print(ClusterMetrics.silhouette(
-    #     np.array([0, 0, 1, 1, 0, 1, 2, 2, 2, 2]),
-    #     [0, 1, 2],
-    #     np.random.rand(10, 10)
-    # ))
+    from sklearn.metrics import normalized_mutual_info_score, homogeneity_score
+
+    expected = normalized_mutual_info_score(a, b)
+    actual = ClusterMetrics.normalized_mutual_info(ours)
+    assert expected == actual
+
+    expected = homogeneity_score(a, b)
+    actual = ClusterMetrics.purity_score(ours)
+    assert expected == actual
+
+# if __name__ == "__main__":
+#     error = EvalClustering(grp=9, radius=0.00001, min_dense=10)
+#     results = error.eval_db_scan(False)
+#     print(results)
+#     EvalClustering.plot_single_result(
+#         results["silhouette_score"]
+#     ).show()
+
+# #
+# EvalClustering.plot_multiple_results(
+#     [{"Noise %": 10, "purity_score": 0.5, "nml_score": 0.6, "clusters_found": 7,
+#       "mean_silhouette_score": np.mean([0.7, 0.8, 0.9]),
+#       "silhouette_score": [0.7, 0.8, 0.9]},
+#      {"Noise %": 5, "purity_score": 0.8, "nml_score": 0.9, "clusters_found": 10,
+#       "mean_silhouette_score": np.mean([0.85, 0.9, 0.95]), "silhouette_score": [0.85, 0.9, 0.95]},
+#      {"Noise %": 15, "purity_score": 0.7, "nml_score": 0.8, "clusters_found": 9,
+#       "mean_silhouette_score": np.mean([0.75, 0.8, 0.85]), "silhouette_score": [0.75, 0.8, 0.85]}],
+#     ["Run 1", "Run 2", "Run 3"]
+# ).show()
+#
+# EvalClustering.plot_single_result(
+#     [0.7, 0.8, 0.9]
+# ).show()
+
+# print(ClusterMetrics.silhouette(
+#     np.array([0, 0, 1, 1, 0, 1, 2, 2, 2, 2]),
+#     [0, 1, 2],
+#     np.random.rand(10, 10)
+# ))
