@@ -96,15 +96,6 @@ class ClusterMetrics:
         cluster_number = np.sum(table, axis=0)
         scores_for_clusters = np.max(table, axis=0) / cluster_number
         return scores_for_clusters, np.average(scores_for_clusters, axis=0, weights=cluster_number / np.sum(table))
-    
-    @classmethod
-    def ps(cls, clusters_we_got, test_results):
-        return cls.purity_score(
-            cls.contingency_tab(
-                len(set(clusters_we_got)),
-                clusters_we_got, test_results
-            )
-        )
 
 
 class EvalClustering(ClusterMetrics):
