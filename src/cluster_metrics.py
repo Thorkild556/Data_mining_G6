@@ -71,8 +71,11 @@ class ClusterMetrics:
     def contingency_tab(cls, got_this_many_clusters: int, clustered: List[int], test_results: List[int]):
         # builds the contingency table for the clustering results
         table = np.zeros((got_this_many_clusters, len(set(test_results))), dtype=int)
+
         db_scan_clusters, db_scan_clusters_mapped = np.unique(clustered, return_inverse=True)
-        np.add.at(table, (db_scan_clusters_mapped, test_results), 1)
+        test_results_clustered, test_results_mapped = np.unique(test_results, return_inverse=True)
+
+        np.add.at(table, (db_scan_clusters_mapped, test_results_mapped), 1)
         return table, db_scan_clusters
 
     @classmethod
@@ -95,7 +98,32 @@ class ClusterMetrics:
     def purity_score(cls, table):
         cluster_number = np.sum(table, axis=0)
         scores_for_clusters = np.max(table, axis=0) / cluster_number
-        return scores_for_clusters, np.average(scores_for_clusters, axis=0, weights=cluster_number / np.sum(table))
+        return scores_for_clusters, np.average(scores_for_clusters, weights=cluster_number / np.sum(table))
+
+    @classmethod
+    def ps(cls, clusters_we_got, test_results):
+        return cls.purity_score(
+            cls.contingency_tab(
+                len(set(clusters_we_got)),
+                clusters_we_got, test_results
+            )[0]
+        )
+
+    @classmethod
+    def s_score(cls, clusters_we_got, test_results, embeddings):
+        dist_matrix = (1 - cosine_similarity(embeddings, embeddings))
+        np.fill_diagonal(dist_matrix, np.nan)
+        _, unique_ = cls.contingency_tab(len(set(clusters_we_got)), clusters_we_got, test_results)
+        return cls.silhouette(clusters_we_got, unique_, dist_matrix)
+
+    @classmethod
+    def nml_score(cls, clusters_we_got, test_results):
+        return cls.normalized_mutual_info(
+            cls.contingency_tab(
+                len(set(clusters_we_got)),
+                clusters_we_got, test_results
+            )[0]
+        )
 
 
 class EvalClustering(ClusterMetrics):
@@ -295,29 +323,7 @@ class EvalClustering(ClusterMetrics):
         gc.collect()
 
 
-# debugging script to make sure script can be modified to run fast
-if __name__ == "__main__":
-    from scipy.stats.contingency import crosstab
-    from sklearn.metrics.pairwise import euclidean_distances
 
-    a = [1, 2, 2, 3, 4, 5, 5, 5, 7, 7, 7, 9, 10, 10, 11, 19, 18, 17, 16, 6, 8, 12, 13, 14, 15, 0]
-    b = [1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 10, 10, 11, 11, 12, 12, 13, 13]
-    assert len(a) == len(b)
-    res = crosstab(b, a)
-    ours, _ = ClusterMetrics.contingency_tab(len(set(b)), np.array(b), np.array(a))
-    print(res)
-    print(ours)
-    assert np.all(res.count == ours)
-
-    from sklearn.metrics import normalized_mutual_info_score, homogeneity_score
-
-    expected = normalized_mutual_info_score(a, b)
-    actual = ClusterMetrics.normalized_mutual_info(ours)
-    assert expected == actual
-
-    expected = homogeneity_score(a, b)
-    actual = ClusterMetrics.purity_score(ours)
-    assert expected == actual
 
 # if __name__ == "__main__":
 #     error = EvalClustering(grp=9, radius=0.00001, min_dense=10)
