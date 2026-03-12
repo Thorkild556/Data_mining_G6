@@ -20,4 +20,5 @@ dependencies = [
     "scipy-stubs~=1.17.0",
     "sentence-transformers>=5.2.3",
     "wordcloud>=1.9.6",
+    "kneed>=0.8.5"
 ]
