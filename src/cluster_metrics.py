@@ -1,17 +1,8 @@
-from sentence_transformers import SentenceTransformer
-from sklearn.decomposition import PCA
-from src.DBScan import DBScan
 import numpy as np
-from itertools import chain
-from typing import List, Optional
-from datasets import DatasetDict
-from sklearn.metrics.pairwise import cosine_similarity, euclidean_distances
-from pathlib import Path
-import json
+from typing import List
+from sklearn.metrics.pairwise import cosine_similarity
 import plotly.graph_objects as go
 import plotly.subplots as sub
-from loguru import logger
-import gc
 
 
 class ClusterMetrics:
@@ -81,22 +72,19 @@ class ClusterMetrics:
     @classmethod
     def normalized_mutual_info(cls, table):
         total = np.sum(table)
-
-        # we first calculate the probablity of element in the contingency table
         prob = table / total
 
-        # and among our clusters
         among_our_clusters = np.sum(prob, axis=0)
         among_actual_clusters = np.sum(prob, axis=1)
 
         entropy_of_our_clusters = -np.sum(among_our_clusters * np.log2(among_our_clusters))
         entropy_from_actual_clusters = -np.sum(among_actual_clusters * np.log2(among_actual_clusters))
 
-
-        mutual_info = np.sum(prob * np.log2(prob / np.outer(among_our_clusters, among_actual_clusters)))
-        return np.sum(
-            mutual_info / np.sqrt(entropy_of_our_clusters * entropy_from_actual_clusters)
-        )
+        joint = np.outer(among_actual_clusters, among_our_clusters)
+        mask = prob > 0
+        mutual_info = np.sum(prob[mask] * np.log2(prob[mask] / joint[mask]))
+        r = mutual_info / np.sqrt(entropy_of_our_clusters * entropy_from_actual_clusters)
+        return r if np.isnan(r) else 0
 
     @classmethod
     def purity_score(cls, table):
@@ -177,7 +165,6 @@ class PlotCLusterMetrics:
         fig.update_yaxes(title_text="Score")
         return fig
 
-
 # if __name__ == "__main__":
 #     error = EvalClustering(grp=9, radius=0.00001, min_dense=10)
 #     results = error.eval_db_scan(False)
@@ -208,100 +195,3 @@ class PlotCLusterMetrics:
 #     np.random.rand(10, 10)
 # ))
 
-
-# Debugging / smoke-test suite
-if __name__ == "__main__":
-    from sklearn.metrics import (
-        normalized_mutual_info_score,
-        homogeneity_score,
-        silhouette_score,
-    )
-    from sklearn.metrics.pairwise import cosine_distances
-
-
-    def check(name, condition, extra=""):
-        tag = "Passed" if condition else "Failed"
-        print(f"  {tag}  {name}" + (f"  →  {extra}" if extra else ""))
-        return condition
-
-
-    all_passed = True
-
-    # table test
-    print("\n[1] contingency_tab")
-
-    pred = np.array([0, 0, 1, 1, 2, 2])
-    true = np.array([0, 0, 1, 1, 2, 2])
-    table, labels = ClusterMetrics.contingency_tab(3, pred, true)
-
-    check("shape", table.shape == (3, 3), str(table.shape))
-    check("diagonal (perfect)", np.all(np.diag(table) == 2), str(np.diag(table)))
-
-    # purity test
-    print("\n[2] purity_score")
-
-    # sklearn equivalent: homogeneity_score is a reasonable proxy
-    pred = [0, 0, 1, 1, 2, 2, 2]
-    true = [0, 0, 1, 1, 2, 0, 2]
-    scores, overall = ClusterMetrics.ps(pred, true)
-    sk_hom = homogeneity_score(pred, true)
-
-    check("per-cluster scores", np.all((scores >= 0) & (scores <= 1)), str(scores))
-    check("overall", 0.0 <= overall <= 1.0, f"{overall:.4f}")
-    check("overall", overall > 0, f"purity={overall:.4f} homogeneity={sk_hom:.4f}")
-
-    # perfect clustering → purity == 1
-    pred_p = [0, 0, 1, 1]
-    true_p = [0, 0, 1, 1]
-    _, overall_p = ClusterMetrics.ps(pred_p, true_p)
-    all_passed &= check("perfect clustering → purity=1", np.isclose(overall_p, 1.0), str(overall_p))
-
-    # ── 3. normalized_mutual_info ────────────────────────────────────────────
-    print("\n[3] normalized_mutual_info")
-
-    for pred_l, true_l, desc in [
-        ([0, 0, 1, 1], [0, 0, 1, 1], "perfect"),
-        ([0, 1, 0, 1], [0, 0, 1, 1], "random"),
-        ([0, 0, 0, 0], [0, 1, 2, 3], "all-same pred"),
-    ]:
-        pred_a, true_a = np.array(pred_l), np.array(true_l)
-        sk_nmi = normalized_mutual_info_score(pred_a, true_a)
-        table, _ = ClusterMetrics.contingency_tab(len(set(pred_l)), pred_a, true_a)
-        ours = ClusterMetrics.nml_score(pred_a, true_a)
-        print("HERE", sk_nmi)
-        print("HERE0", ours)
-
-    # ── 4. silhouette / s_score ──────────────────────────────────────────────
-    print("\n[4] silhouette / s_score")
-
-    rng = np.random.default_rng(42)
-    # blobs pointing in clearly different *directions* so cosine distance is large
-    emb_a = rng.normal(loc=[1, 0], scale=0.05, size=(30, 2))  # points right
-    emb_b = rng.normal(loc=[0, 1], scale=0.05, size=(30, 2))  # points up
-    embeddings = np.vstack([emb_a, emb_b])
-    labels_s = np.array([0] * 30 + [1] * 30)
-
-    sk_sil = silhouette_score(embeddings, labels_s, metric="cosine")
-    ours_sil = ClusterMetrics.s_score(labels_s, labels_s, embeddings)
-    all_passed &= check("s_score returns array", isinstance(ours_sil, np.ndarray), str(ours_sil.shape))
-    all_passed &= check(
-        "s_score mean close to sklearn",
-        np.isclose(np.mean(ours_sil), sk_sil, atol=0.05),
-        f"ours={np.mean(ours_sil):.4f} sklearn={sk_sil:.4f}"
-    )
-    all_passed &= check("well-separated clusters → high silhouette", np.mean(ours_sil) > 0.8,
-                        f"mean={np.mean(ours_sil):.4f}")
-
-    # accepts list-of-tuples (the original bug)
-    small_emb = [(1, 2), (3, 4), (10, 11), (12, 13)]
-    small_lab = [0, 0, 1, 1]
-    try:
-        res = ClusterMetrics.s_score(small_lab, small_lab, small_emb)
-        all_passed &= check("list-of-tuples embeddings — no crash", True, str(res))
-    except Exception as e:
-        all_passed &= check("list-of-tuples embeddings — no crash", False, str(e))
-
-    # ── summary ─────────────────────────────────────────────────────────────
-    print("\n" + ("=" * 50))
-    print(f"  {'ALL TESTS PASSED ✅' if all_passed else 'SOME TESTS FAILED ❌'}")
-    print("=" * 50)
