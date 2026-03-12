@@ -14,47 +14,51 @@ class DBScan:
         return (1 - sklearn.metrics.pairwise.cosine_similarity(v.reshape(1, -1), m)).flatten()
     
     def get_neighbors(self, idx: int, X: np.array, cosine: bool = True):
-        if cosine == True:
+        if cosine:
             dists = self.cosine_distances(X[idx], X)
         else:
             dists = self.calculate_distances(X[idx], X)
-        return np.where(dists <= self.radius)[0] # returns an array where the distance is less than the radius
+        neighbors = np.where(dists <= self.radius)[0]
+        return neighbors[neighbors != idx]  # exclude self
     
-    def make_cluster(self, X, start_idx, cosine: bool = True):
+    def make_cluster(self, X, start_idx, cosine=True):
         neighbor_stack = [start_idx]
-        start = True
+        cluster_formed = False
         while neighbor_stack:
             idx = neighbor_stack.pop()
-            if self.visited[idx] == 1: #has already been visited
+            if self.visited[idx] == 1:
                 continue
-            self.visited[idx] = 1 # it has now been visited
+            self.visited[idx] = 1
             neigh_idxs = self.get_neighbors(idx, X, cosine)
 
-            if neigh_idxs.shape[0] < 1:
-                self.type[idx] = 3 # noise for sure.. it has no neighbors
-                return
-            elif neigh_idxs.shape[0] >= self.min_dense: # if a core object
-                self.type[idx] = 1 # core object, we continue
-                neighbor_stack.extend(neigh_idxs.tolist()) # we continue on its children since its a core object
-                start = False
-                self.clusters[idx] = self.n_cluster # put it in the current cluster.
-            else: # we either have an edge/border or a noise point but we will check all later
-                if start == False: # we know now it definitely came from a core object 
-                    self.type[idx] = 2
-                    self.clusters[idx] = self.n_cluster
-                else: # in the case that this is the first point we look at, we do not know yet if we have any core neighbors
-                    self.visited[idx] = 0  #so if there is a core neighbor we will later discover it
-                    self.type[idx] = 3 #leave it as noise for now, but might be overwritten.
-        
-        self.n_cluster += 1
+            if len(neigh_idxs) >= self.min_dense:
+                self.type[idx] = 1
+                self.clusters[idx] = self.n_cluster
+                neighbor_stack.extend(neigh_idxs.tolist())
+                cluster_formed = True
+            else:
+                self.type[idx] = 3
+
+        if cluster_formed:
+            self.n_cluster += 1
     
     def make_clusters(self, X, cosine: bool = True):
         self.visited = np.zeros(shape=(X.shape[0]))
-        self.type = np.zeros(shape=len(X)) # 1 = core, 2 = edge, 3 = noise
-        self.clusters = np.zeros(shape=len(X))
-        self.n_cluster = 1
+        self.type = np.zeros(shape=len(X))
+        self.clusters = np.full(shape=len(X), fill_value=-1)  # fix: -1 for noise
+        self.n_cluster = 0  # fix: start at 0
+
         for idx in range(X.shape[0]):
             if self.visited[idx] == 0:
-                self.make_cluster(X, start_idx=idx, cosine = cosine)
-    
+                self.make_cluster(X, start_idx=idx, cosine=cosine)
+
+        for idx in range(X.shape[0]):
+            if self.type[idx] == 3:
+                neigh_idxs = self.get_neighbors(idx, X, cosine)
+                for n in neigh_idxs:
+                    if self.type[n] == 1:
+                        self.type[idx] = 2
+                        self.clusters[idx] = self.clusters[n]
+                        break  # still arbitrary, but at least noise=-1 is now distinct
+
         return self.clusters
