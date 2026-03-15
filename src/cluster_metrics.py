@@ -106,6 +106,7 @@ class ClusterMetrics:
 
     @classmethod
     def s_score(cls, clusters_we_got, test_results, embeddings):
+        # we would be calculating all possible distances between every point
         dist_matrix = (1 - cosine_similarity(embeddings, embeddings))
         np.fill_diagonal(dist_matrix, np.nan)
         _, unique_ = cls.contingency_tab(len(set(clusters_we_got)), clusters_we_got, test_results)
