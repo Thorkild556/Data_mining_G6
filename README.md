@@ -4,7 +4,7 @@ We are Group of 4 Students:
 
 - Rahul
 - Thorkild
-- Diago
+- Diogo
 - Ramesh
 
 Group Number: 6
