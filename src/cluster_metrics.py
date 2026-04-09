@@ -1,6 +1,12 @@
 import numpy as np
 from typing import List
 from sklearn.metrics.pairwise import cosine_similarity
+from sklearn.manifold import TSNE
+import plotly.express as px
+from wordcloud import WordCloud, STOPWORDS
+import matplotlib.pyplot as plt
+import pandas as pd
+from rich.table import Table
 
 
 class ClusterMetrics:
@@ -120,3 +126,150 @@ class ClusterMetrics:
                 clusters_we_got, test_results
             )[0]
         )
+
+    @classmethod
+    def eval_results(cls, features_arr, clusters, grps, title):
+        clusters_arr = np.asarray(clusters)
+        clusters_masked = clusters_arr != -1
+    
+        nml_score = ClusterMetrics.nml_score(clusters_arr[clusters_masked], grps[clusters_masked])
+        purity_score = ClusterMetrics.ps(clusters_arr[clusters_masked], grps[clusters_masked])
+        sil_score = ClusterMetrics.s_score(clusters_arr[clusters_masked], grps[clusters_masked],
+                                           features_arr[clusters_masked])
+    
+        table = Table(title=f"{title} Results")
+        table.add_column("Metric", justify="right")
+        table.add_column("Score", justify="right")
+    
+        table.add_row("NML", str("{:.3}".format(nml_score)))
+        table.add_row("Purity", str("{:.3}".format(purity_score[1])))
+        table.add_row("Silhouette", str("{:.3}".format(np.mean(sil_score))))
+    
+        console.print(table)
+
+class DimRed:
+    proj: np.ndarray 
+
+    def __init__(self, data_set: np.ndarray, labels_lists):
+        self.labels_list = labels_lists
+        self.data_set = data_set
+        self.proj = None
+
+    def tsne(self, n_components: int = 2):
+        self.proj = TSNE(n_components=n_components).fit_transform(self.data_set)
+        return self.proj
+
+    def display_proj(self, title="", r="", w=900, h=800):
+        if type(self.proj) == type(None): self.tsne()
+        fig = px.scatter(
+            self.proj, x=0, y=1,
+            color=[str(_) for _ in self.labels_list], labels={'color': 'labels'},
+            color_discrete_sequence=px.colors.qualitative.Light24,
+            title=f"Dataset (Based on the {title})", width=w, height=h
+        )
+        fig.show(renderer=r)
+
+    def pca_dim(self, n_components: int=2):
+        return PCA(n_components=n_components, random_state=42).fit_transform(self.data_set)
+
+
+def make_wordcloud(text, title, ax):
+    wc = WordCloud(stopwords=STOPWORDS, max_words=100, background_color="white").generate(text)
+    ax.imshow(wc, interpolation="bilinear")
+    ax.set_title(title)
+    ax.axis("off")
+
+def tight_word_clouds(texts, labels_list):
+    # Group texts by cluster label
+    cluster_texts = (
+        pd.Series(texts)
+        .groupby(labels_list)
+        .apply(lambda x: " ".join(x))
+    )
+    
+    n_clusters = len(cluster_texts)
+    ncols = 2
+    nrows = -(-n_clusters // ncols) 
+    
+    fig, axs = plt.subplots(nrows=nrows, ncols=ncols, figsize=(12, nrows * 3))
+    axs = axs.flatten()
+    
+    for i, (label, text) in enumerate(cluster_texts.items()):
+        make_wordcloud(text, f"Cluster {label}", axs[i])
+    
+    for j in range(i + 1, len(axs)):
+        axs[j].set_visible(False)
+    
+    fig.tight_layout()
+    plt.show()
+    
+def plot_results(projections, clusters, title):
+    fig = px.scatter(
+        projections, x=0, y=1,
+        color=[str(_) for _ in clusters], labels={'color': 'labels'},
+        color_discrete_sequence=px.colors.qualitative.Light24,
+        title=f"Dataset (Based on {title})"
+    )
+    fig.show(renderer="png")
+
+
+def plot_distance_matrix(grps, dist_matrix, title):
+    with_grp_distances = []
+    rest_of_grp_distances = []
+    group_data = []
+    
+    for grp_id in range(20):
+        first_grp = dist_matrix[grps == grp_id]
+        within_grp = first_grp[:, grps == grp_id]
+        rest_grp = first_grp[:, grps != grp_id]
+    
+        n = within_grp.shape[0]
+        upper_mask = np.triu(np.ones((n, n), dtype=bool), k=1)
+        within_vals = within_grp[upper_mask]
+        rest_vals = rest_grp.flatten()
+    
+        with_grp_distances.extend(list(within_vals))
+        rest_of_grp_distances.extend(list(rest_vals))
+        group_data.append((within_vals, rest_vals))
+    
+    
+    def style_bp(bp):
+        bp["boxes"][0].set_facecolor("steelblue")
+        bp["boxes"][1].set_facecolor("tomato")
+        bp["medians"][0].set_color("white")
+        bp["medians"][1].set_color("white")
+    
+    
+    fig_overall, ax = plt.subplots(figsize=(6, 5))
+    bp = ax.boxplot(
+        [with_grp_distances, rest_of_grp_distances],
+        patch_artist=True,
+        flierprops=dict(marker=".", markersize=2, linestyle="none")
+    )
+    style_bp(bp)
+    ax.set_xticks([1, 2])
+    ax.set_xticklabels(["Within", "Rest"])
+    ax.set_title("Overall", fontweight="bold", fontsize=14)
+    ax.set_ylabel(f"{title} Distance")
+    plt.tight_layout()
+    plt.show()
+    
+    fig_groups, axes = plt.subplots(4, 5, figsize=(20, 16))
+    axes = axes.flatten()
+    
+    for grp_id, (within_vals, rest_vals) in enumerate(group_data):
+        ax = axes[grp_id]
+        bp = ax.boxplot(
+            [within_vals, rest_vals],
+            patch_artist=True,
+            flierprops=dict(marker=".", markersize=2, linestyle="none")
+        )
+        style_bp(bp)
+        ax.set_xticks([1, 2])
+        ax.set_xticklabels(["Within", "Rest"])
+        ax.set_title(f"Group {grp_id}")
+        ax.set_ylabel(f"{title} Distance")
+    
+    plt.suptitle(f"Within vs Rest {title} Distances per Group", fontsize=16)
+    plt.tight_layout()
+    plt.show()
