@@ -3,6 +3,7 @@ from typing import List
 from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.manifold import TSNE
 import plotly.express as px
+import plotly.graph_objects as go
 from wordcloud import WordCloud, STOPWORDS
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -149,29 +150,65 @@ class ClusterMetrics:
 
 class DimRed:
     proj: np.ndarray 
+    label_proj: np.ndarray
 
-    def __init__(self, data_set: np.ndarray, labels_lists):
+    def __init__(self, data_set: np.ndarray, labels_lists, label_names, embed_label_names):
         self.labels_list = labels_lists
         self.data_set = data_set
+        self.label_names = label_names
+        self.e_label_names = embed_label_names
         self.proj = None
 
     def tsne(self, n_components: int = 2):
-        self.proj = TSNE(n_components=n_components).fit_transform(self.data_set)
+        dim_red = TSNE(n_components=n_components)
+        total_proj = dim_red.fit_transform(np.concatenate((self.data_set, self.e_label_names), axis=0))
+        self.proj = total_proj[:len(self.data_set), :]
+        self.label_proj = total_proj[len(self.data_set):, :]
         return self.proj
 
     def display_proj(self, title="", r="", w=900, h=800):
-        if type(self.proj) == type(None): self.tsne()
-        fig = px.scatter(
-            self.proj, x=0, y=1,
-            color=[str(_) for _ in self.labels_list], labels={'color': 'labels'},
-            color_discrete_sequence=px.colors.qualitative.Light24,
-            title=f"Dataset (Based on the {title})", width=w, height=h
-        )
+        if self.proj is None: self.tsne()
+        palette = px.colors.qualitative.Light24
+    
+        label_names_list = [self.label_names[int(_)] for _ in self.labels_list]
+        unique_labels = list(dict.fromkeys(label_names_list))
+        color_map = {label: palette[i % len(palette)] for i, label in enumerate(unique_labels)}
+        anchor_colors = [color_map[self.label_names[i]] for i in range(len(self.label_proj))]
+    
+        fig = go.Figure()
+    
+        for label in unique_labels:
+            mask = [i for i, l in enumerate(label_names_list) if l == label]
+            fig.add_trace(go.Scatter(
+                x=self.proj[mask, 0],
+                y=self.proj[mask, 1],
+                mode='markers',
+                name=label,
+                marker=dict(color=color_map[label], size=6),
+                showlegend=False
+            ))
+    
+        for i in range(len(self.label_proj)):
+            fig.add_trace(go.Scatter(
+                x=[self.label_proj[i, 0]],
+                y=[self.label_proj[i, 1]],
+                mode='markers',
+                name=self.label_names[i],
+                hovertext=self.label_names[i],
+                marker=dict(
+                    size=14,
+                    color=anchor_colors[i],
+                    symbol='diamond',
+                    line=dict(width=1.5, color='black')
+                ),
+                showlegend=True
+            ))
+    
+        fig.update_layout(title=f"Dataset (Based on the {title})", width=w, height=h)
         fig.show(renderer=r)
 
     def pca_dim(self, n_components: int=2):
         return PCA(n_components=n_components, random_state=42).fit_transform(self.data_set)
-
 
 def make_wordcloud(text, title, ax):
     wc = WordCloud(stopwords=STOPWORDS, max_words=100, background_color="white").generate(text)
@@ -179,7 +216,7 @@ def make_wordcloud(text, title, ax):
     ax.set_title(title)
     ax.axis("off")
 
-def tight_word_clouds(texts, labels_list):
+def tight_word_clouds(texts, labels_list, label_names=None):
     # Group texts by cluster label
     cluster_texts = (
         pd.Series(texts)
@@ -195,7 +232,7 @@ def tight_word_clouds(texts, labels_list):
     axs = axs.flatten()
     
     for i, (label, text) in enumerate(cluster_texts.items()):
-        make_wordcloud(text, f"Cluster {label}", axs[i])
+        make_wordcloud(text, f"{'Cluster: ' if not label_names else ''}{label if not label_names else (label_names[label])}", axs[i])
     
     for j in range(i + 1, len(axs)):
         axs[j].set_visible(False)
