@@ -152,18 +152,15 @@ class DimRed:
     proj: np.ndarray 
     label_proj: np.ndarray
 
-    def __init__(self, data_set: np.ndarray, labels_lists, label_names, embed_label_names):
+    def __init__(self, data_set: np.ndarray, labels_lists, label_names):
         self.labels_list = labels_lists
-        self.data_set = data_set
         self.label_names = label_names
-        self.e_label_names = embed_label_names
+        self.data_set = data_set
         self.proj = None
 
     def tsne(self, n_components: int = 2):
         dim_red = TSNE(n_components=n_components)
-        total_proj = dim_red.fit_transform(np.concatenate((self.data_set, self.e_label_names), axis=0))
-        self.proj = total_proj[:len(self.data_set), :]
-        self.label_proj = total_proj[len(self.data_set):, :]
+        self.proj = dim_red.fit_transform(self.data_set)
         return self.proj
 
     def display_proj(self, title="", r="", w=900, h=800):
@@ -173,7 +170,6 @@ class DimRed:
         label_names_list = [self.label_names[int(_)] for _ in self.labels_list]
         unique_labels = list(dict.fromkeys(label_names_list))
         color_map = {label: palette[i % len(palette)] for i, label in enumerate(unique_labels)}
-        anchor_colors = [color_map[self.label_names[i]] for i in range(len(self.label_proj))]
     
         fig = go.Figure()
     
@@ -185,22 +181,6 @@ class DimRed:
                 mode='markers',
                 name=label,
                 marker=dict(color=color_map[label], size=6),
-                showlegend=False
-            ))
-    
-        for i in range(len(self.label_proj)):
-            fig.add_trace(go.Scatter(
-                x=[self.label_proj[i, 0]],
-                y=[self.label_proj[i, 1]],
-                mode='markers',
-                name=self.label_names[i],
-                hovertext=self.label_names[i],
-                marker=dict(
-                    size=14,
-                    color=anchor_colors[i],
-                    symbol='diamond',
-                    line=dict(width=1.5, color='black')
-                ),
                 showlegend=True
             ))
     
@@ -208,7 +188,7 @@ class DimRed:
         fig.show(renderer=r)
 
     def pca_dim(self, n_components: int=2):
-        return PCA(n_components=n_components, random_state=42).fit_transform(self.data_set)
+        return PCA(n_components=n_components, random_state=42)
 
 def make_wordcloud(text, title, ax):
     wc = WordCloud(stopwords=STOPWORDS, max_words=100, background_color="white").generate(text)
@@ -250,63 +230,75 @@ def plot_results(projections, clusters, title):
     fig.show(renderer="png")
 
 
-def plot_distance_matrix(grps, dist_matrix, title):
-    with_grp_distances = []
-    rest_of_grp_distances = []
-    group_data = []
+def distance_matrix_of_clusters(grps, dist_matrix, label_names, title="", plot=True, r=None):
+    # Initialize a 20x20 matrix to store average distances
+    n_clusters = 20
+    avg_dist_matrix = np.zeros((n_clusters, n_clusters))
     
-    for grp_id in range(20):
-        first_grp = dist_matrix[grps == grp_id]
-        within_grp = first_grp[:, grps == grp_id]
-        rest_grp = first_grp[:, grps != grp_id]
-    
-        n = within_grp.shape[0]
-        upper_mask = np.triu(np.ones((n, n), dtype=bool), k=1)
-        within_vals = within_grp[upper_mask]
-        rest_vals = rest_grp.flatten()
-    
-        with_grp_distances.extend(list(within_vals))
-        rest_of_grp_distances.extend(list(rest_vals))
-        group_data.append((within_vals, rest_vals))
-    
-    
-    def style_bp(bp):
-        bp["boxes"][0].set_facecolor("steelblue")
-        bp["boxes"][1].set_facecolor("tomato")
-        bp["medians"][0].set_color("white")
-        bp["medians"][1].set_color("white")
-    
-    
-    fig_overall, ax = plt.subplots(figsize=(6, 5))
-    bp = ax.boxplot(
-        [with_grp_distances, rest_of_grp_distances],
-        patch_artist=True,
-        flierprops=dict(marker=".", markersize=2, linestyle="none")
+    for i in range(n_clusters):
+        for j in range(n_clusters):
+            # Extract the sub-matrix of distances between points in cluster i and cluster j
+            sub_matrix = dist_matrix[grps == i][:, grps == j]
+            
+            if i == j:
+                # Intra-cluster: Mean of the upper triangle (excluding the diagonal 0s)
+                upper_idx = np.triu_indices_from(sub_matrix, k=1)
+                avg_dist_matrix[i, j] = np.mean(sub_matrix[upper_idx]) 
+            else:
+                # Inter-cluster: Mean of all pairwise distances between the two groups
+                avg_dist_matrix[i, j] = np.mean(sub_matrix) 
+    if not plot:
+        return avg_dist_matrix
+    plot_distance_matrix(avg_dist_matrix, label_names, title, r)
+
+
+def plot_distance_matrix(dist_matrix, labels, title, r=None):
+    fig = px.imshow(
+        dist_matrix,
+        x=labels,
+        y=labels,
+        labels=dict(x="Cluster B", y="Cluster A", color="Avg Distance"),
+        title=title,
+        color_continuous_scale='Viridis', # You can change this to 'RdBu' or 'Plasma'
+        aspect="auto"
     )
-    style_bp(bp)
-    ax.set_xticks([1, 2])
-    ax.set_xticklabels(["Within", "Rest"])
-    ax.set_title("Overall", fontweight="bold", fontsize=14)
-    ax.set_ylabel(f"{title} Distance")
-    plt.tight_layout()
-    plt.show()
+
+    # Layout adjustments for readability
+    fig.update_layout(
+        width=900,
+        height=900,
+        xaxis_nticks=20,
+        yaxis_nticks=20
+    )
     
-    fig_groups, axes = plt.subplots(4, 5, figsize=(20, 16))
-    axes = axes.flatten()
+    fig.show(renderer=r)
+
+
+def plot_confusion_matrix(actual_clusters, returned, label_names, title='', r=None):
+    grps_named = pd.Series(actual_clusters).map(lambda x: label_names[int(x)])
+
+    df_cm = pd.crosstab(
+        index=grps_named, 
+        columns=returned, 
+        rownames=['True Labels'], 
+        colnames=['Actual Labels']
+    )
     
-    for grp_id, (within_vals, rest_vals) in enumerate(group_data):
-        ax = axes[grp_id]
-        bp = ax.boxplot(
-            [within_vals, rest_vals],
-            patch_artist=True,
-            flierprops=dict(marker=".", markersize=2, linestyle="none")
-        )
-        style_bp(bp)
-        ax.set_xticks([1, 2])
-        ax.set_xticklabels(["Within", "Rest"])
-        ax.set_title(f"Group {grp_id}")
-        ax.set_ylabel(f"{title} Distance")
+    df_cm.columns = [f"{c}" for c in df_cm.columns]
     
-    plt.suptitle(f"Within vs Rest {title} Distances per Group", fontsize=16)
-    plt.tight_layout()
-    plt.show()
+    fig = px.imshow(
+        df_cm,
+        text_auto=True,
+        aspect="auto",
+        color_continuous_scale='Blues',
+        labels=dict(x="Clusters", y="Groups", color="Count")
+    )
+    
+    fig.update_layout(
+        xaxis=dict(side='top'),  # Cluster labels on top
+        title=title,
+        width=900,
+        height=800
+    )
+    
+    fig.show(renderer=r)
