@@ -316,7 +316,7 @@ def plot_topic_group_heatmap(
 
     renamed_columns = {}
     for topic_id in plot_df.columns:
-        topic_label = f"Topic {int(topic_id) + 1}"
+        topic_label = f"Topic {int(topic_id)}"
         if show_topic_terms and topic_lookup is not None:
             topic_terms = topic_lookup.get(topic_id)
             if topic_terms:
