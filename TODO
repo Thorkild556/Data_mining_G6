@@ -1,0 +1,21 @@
+Notes
+- [ ] We need to have the label names instead of “Cluster: 1, Cluster: 2...”
+- [ ] We have to set max features in the count vectorizer to at least 1000, since we have > 5000 documents. Setting it to 100 is just ridiculous 
+- [ ] Bruh, same goes for tfidf, why would we ever use only 100 words for 5000+ documents.
+- [ ] If we use any hyperparameters in general we have to argue about it. It seems we set the max_df to 0.006 in the tfidf. Why? Think about it, it doesn’t make sense. If you think it makes sense, please explain why, but I will remove it for now.
+- [ ] After PCA projection we need to remnormalize again because PCA does not retain l2-normalization (did this)
+- [ ] Okay let’s go through the argumentation once more later. A lot of the argumentation simply doesn’t make sense logically.
+- [ ] Nice with the similarity visualization and commenting hereof.
+- [ ] Okay the first discussion of results makes no sense anymore. I will delete it all, put the analysis immediately under each result and have the Recap instead in the end.
+- [ ] I don’t know where the “tight_wordcloud” comes from? Anyway, we need titles on these so it’s easy to see what is what.
+- [ ] What is the difference between the first KNN graph and the second  (not talking about the mutual vs non mutual) we have 2 mutual graph visualizations, is there a reason for this? If so please write it.
+- [ ] Why has the amount of texts been removed from the word clouds again? We need this back, in order to properly comment on them.
+- [ ] Once the above is fixed we need to comment on the word clouds again.
+- [ ] The topic detection with LSA sounds a little AI.
+- [ ] Holy shit there is a lot of metrics for the LSA. I don’t want to be the guy having to comment on all of that
+- [ ] Hmm, I get an error in the very last cell.
+- [ ] We need some more commenting after each result in the last section but imma push now and go get some groceries and get some dinner.
+- [ ] Okay I can see that it is in the bottom, but I think we should “refactor” it to come below each result instead, and then make a bulletpoint list of the conclusion.
+- [ ] We should definitely add word clouds to LSA as well.
+- [ ] Also we can still use NMI for LSA but we cannot use silhouette score, but for sure we should add NMI because then we can more easily compare it with the other topics. Imma go get those groceries dinner now.
+- [ ] We need a final conclusion on everything, and that we observed that K-means++ was the best at topic modeling and we need to comment why that was. 
